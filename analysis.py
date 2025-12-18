@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Final Analysis Dashboard", layout="wide")
+st.set_page_config(page_title="Dashboard Análise Emocional", layout="wide")
 
 st.markdown("""
 <style>
@@ -12,48 +12,38 @@ st.markdown("""
         padding: 20px;
         box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
     }
-    h1 { color: #2c3e50; }
-    h3 { color: #34495e; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 Executive Emotional Analysis Report")
-st.markdown("Analysis adjusted for a **30-minute** total duration.")
+st.title(" Relatório Executivo de Análise Emocional")
+st.markdown("Análise ajustada para **30 minutos**. Interpretação: **Foco (Verde)** e **Reflexão (Azul)**.")
 
 @st.cache_data
-def load_data():
+def carregar_dados():
     try:
-        df_raw = pd.read_csv("dados_reuniao.csv")
-
-        df_raw['emotion'] = df_raw['emotion'].replace({
+        df = pd.read_csv("dados_reuniao.csv")
+        df = df.rename(columns={
             'disgust': 'focused',
             'sad': 'thoughtful'
         })
 
-        max_frame = df_raw['minute'].max()
-        if max_frame > 0:
-            df_raw['real_time'] = (df_raw['minute'] / max_frame) * 30
+        if 'tempo' in df.columns:
+            max_tempo = df['tempo'].max()
+            if max_tempo > 0:
+                df['tempo_real'] = (df['tempo'] / max_tempo) * 30
+            else:
+                df['tempo_real'] = 0
         else:
-            df_raw['real_time'] = 0
+            df['tempo_real'] = (df.index / len(df)) * 30
 
-        df_raw['real_time'] = df_raw['real_time'].round(2)
-        df_pivot = (
-            df_raw
-            .groupby(['real_time', 'emotion'])['intensity']
-            .mean()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-        df_pivot.columns.name = None
-
-        return df_pivot
+        return df
     except FileNotFoundError:
         return None
 
-df = load_data()
+df = carregar_dados()
 
 if df is None:
-    st.error("❌ File 'dados_reuniao.csv' not found.")
+    st.error("Arquivo 'dados_reuniao.csv' não encontrado. Verifique se ele está na mesma pasta do script.")
     st.stop()
 
 color_map = {
@@ -66,127 +56,128 @@ color_map = {
     'neutral': 'gray'
 }
 
-cols_present = [c for c in color_map.keys() if c in df.columns]
+cols_presentes = [c for c in color_map.keys() if c in df.columns]
+cols_negativas = [c for c in ['angry', 'fear'] if c in cols_presentes]
+cols_produtivas = [c for c in ['focused', 'thoughtful'] if c in cols_presentes]
+cols_positivas = [c for c in ['happy'] if c in cols_presentes]
 
-cols_negative = [c for c in ['angry', 'fear'] if c in cols_present]
-cols_productive = [c for c in ['focused', 'thoughtful'] if c in cols_present]
-cols_positive = [c for c in ['happy'] if c in cols_present]
-
-st.subheader("30-Minute Summary")
+st.subheader("Resumo dos 30 Minutos")
 c1, c2, c3, c4 = st.columns(4)
 
-avg_happy = df['happy'].mean() if 'happy' in df.columns else 0
-avg_focus = df[cols_productive].sum(axis=1).mean() if cols_productive else 0
-avg_tension = df[cols_negative].sum(axis=1).mean() if cols_negative else 0
+media_happy = df['happy'].mean() if 'happy' in df.columns else 0
+media_foco = df[cols_produtivas].sum(axis=1).mean() if cols_produtivas else 0
+media_tensao = df[cols_negativas].sum(axis=1).mean() if cols_negativas else 0
 
-overall_means = df[cols_present].mean()
-top_emotion = overall_means.idxmax()
-top_color = color_map.get(top_emotion, 'black')
+medias_gerais = df[cols_presentes].mean()
+top_emocao = medias_gerais.idxmax()
+cor_top = color_map.get(top_emocao, 'black')
 
 with c1:
-    st.metric(" Total Duration", "30.0 min")
+    st.metric(" Duração Simulada", "30.0 min")
 with c2:
-    st.metric(" Productivity Level", f"{avg_focus:.1f}%", help="Sum of Focus + Reflection")
+    st.metric(" Nível de Produtividade", f"{media_foco:.1f}%")
 with c3:
-    st.metric(" Well-being Level", f"{avg_happy:.1f}%", help="Happiness Level")
+    st.metric(" Nível de Bem-Estar", f"{media_happy:.1f}%")
 with c4:
-    st.markdown("**Predominant State**")
-    st.markdown(f"<h3 style='color: {top_color}; margin:0'>{top_emotion.upper()}</h3>", unsafe_allow_html=True)
+    st.markdown("**Estado Predominante**")
+    st.markdown(f"<h3 style='color: {cor_top}; margin:0'>{top_emocao.upper()}</h3>", unsafe_allow_html=True)
 
 st.divider()
 
-st.subheader(" Temporal Evolution (0 to 30 min)")
+st.subheader(" Evolução Temporal (0 a 30 min)")
 
 fig_timeline = px.line(
     df,
-    x='real_time',
-    y=cols_present,
+    x='tempo_real',
+    y=cols_presentes,
     labels={
-        'value': 'Intensity (%)',
-        'real_time': 'Time (Minutes)',
-        'variable': 'State'
+        'value': 'Intensidade (%)',
+        'tempo_real': 'Tempo (Minutos)',
+        'variable': 'Estado'
     },
     color_discrete_map=color_map,
     height=500
 )
+
 fig_timeline.update_layout(
-    xaxis_title="Meeting Time (Minutes)",
-    yaxis_title="Intensity (%)",
+    xaxis_title="Tempo de Reunião (Minutos)",
+    yaxis_title="Intensidade (%)",
     hovermode="x unified",
     xaxis=dict(range=[0, 30])
 )
-st.plotly_chart(fig_timeline, use_container_width=True)
+
+try:
+    st.plotly_chart(fig_timeline, width="stretch")
+except:
+    st.plotly_chart(fig_timeline, use_container_width=True)
 
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.subheader("Overall Distribution")
+    st.subheader("Distribuição Geral")
     fig_pie = px.pie(
-        values=overall_means.values,
-        names=overall_means.index,
-        color=overall_means.index,
+        values=medias_gerais.values,
+        names=medias_gerais.index,
+        color=medias_gerais.index,
         color_discrete_map=color_map,
         hole=0.4
     )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    try:
+        st.plotly_chart(fig_pie, width="stretch")
+    except:
+        st.plotly_chart(fig_pie, use_container_width=True)
 
 with col_right:
-    st.subheader("⚠️ Attention Moments (Real Tension)")
-    st.write("Records where **Anger** or **Fear** exceeded 20%:")
+    st.subheader("Momentos de Atenção (Tensão Real)")
+    st.write("Registros onde **Raiva** ou **Medo** superaram 20%:")
 
-    if cols_negative:
-        filtered = df[df[cols_negative].max(axis=1) > 20]
-        if not filtered.empty:
-            cols_show = ['real_time'] + cols_negative
-            st.dataframe(
-                filtered[cols_show].style.format({"real_time": "{:.2f} min"}),
-                height=300,
-                use_container_width=True
-            )
+    if cols_negativas:
+        filtro = df[df[cols_negativas].max(axis=1) > 20]
+        if not filtro.empty:
+            cols_show = ['tempo_real'] + cols_negativas
+            try:
+                st.dataframe(
+                    filtro[cols_show].style.format({"tempo_real": "{:.2f} min"}),
+                    height=300,
+                    width="stretch"
+                )
+            except:
+                st.dataframe(
+                    filtro[cols_show].style.format({"tempo_real": "{:.2f} min"}),
+                    height=300,
+                    use_container_width=True
+                )
         else:
-            st.success(" No significant stress peaks (Anger/Fear) detected.")
+            st.success("Nenhum pico significativo de estresse detectado.")
     else:
-        st.info("No negative emotion data available for analysis.")
+        st.info("Sem dados de emoções negativas para analisar.")
 
 st.divider()
-st.subheader(" Automatic Conclusion")
+st.subheader(" Conclusão Automática da IA")
 
-conclusion = ""
-details = ""
-
-if avg_focus > 40:
-    conclusion = "Highly Productive and Focused Meeting."
-    details = (
-        "Participants showed high levels of concentration and information processing "
-        "('Thoughtful'), usually indicating an efficient work session or deep learning."
-    )
-elif avg_happy > 30:
-    conclusion = "Light and Positive Meeting."
-    details = "The environment was relaxed, with good participant engagement."
-elif avg_tension > 15:
-    conclusion = "Tense or Conflict-Prone Meeting."
-    details = "Clear signs of discomfort, fear, or irritation were observed and should be investigated."
+if media_foco > 40:
+    conclusao = "Reunião Altamente Produtiva e Focada."
+    detalhe = "Altos níveis de concentração e reflexão indicam trabalho eficiente."
+elif media_happy > 30:
+    conclusao = "Reunião Leve e Positiva."
+    detalhe = "Ambiente descontraído e boa receptividade."
+elif media_tensao > 15:
+    conclusao = "Reunião Tensa ou Conflituosa."
+    detalhe = "Sinais de desconforto merecem investigação."
 else:
-    conclusion = "Procedural / Neutral Meeting."
-    details = "Standard interactions with no major emotional fluctuations."
+    conclusao = "Reunião Protocolar/Neutra."
+    detalhe = "Sem grandes oscilações emocionais."
 
-half = len(df) // 2
-start_prod = df.iloc[:half][cols_productive].sum(axis=1).mean() if cols_productive else 0
-end_prod = df.iloc[half:][cols_productive].sum(axis=1).mean() if cols_productive else 0
-trend_text = "increased" if end_prod > start_prod else "decreased"
+metade_idx = len(df) // 2
+inicio_prod = df.iloc[:metade_idx][cols_produtivas].sum(axis=1).mean() if cols_produtivas else 0
+fim_prod = df.iloc[metade_idx:][cols_produtivas].sum(axis=1).mean() if cols_produtivas else 0
+tendencia_texto = "aumentou" if fim_prod > inicio_prod else "diminuiu"
 
-st.info(f"**Verdict:** {conclusion}")
-st.write(details)
-
-st.write(
-    f"**Focus Trend:** The participants' attention level **{trend_text}** "
-    "in the second half of the meeting."
-)
+st.info(f"**Veredito:** {conclusao}")
+st.write(detalhe)
+st.write(f"**Tendência de Foco:** O nível de atenção **{tendencia_texto}** na segunda metade da reunião.")
 
 if 'surprise' in df.columns and df['surprise'].max() > 50:
-    surprise_idx = df['surprise'].idxmax()
-    time_value = df.iloc[surprise_idx]['real_time']
-    st.write(
-        f"💡 A strong **Surprise** moment occurred around **{time_value:.2f} min**, "
-        "which may indicate an important reveal or unexpected event."
-    )
+    tempo_surpresa_idx = df['surprise'].idxmax()
+    tempo_val = df.iloc[tempo_surpresa_idx]['tempo_real']
+    st.write(f" Momento de **Surpresa** por volta de **{tempo_val:.2f} min**.")
